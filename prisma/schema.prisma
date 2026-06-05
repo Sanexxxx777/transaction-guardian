@@ -1,0 +1,272 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Тип кошелька
+enum WalletType {
+  safe
+  eoa
+}
+
+// Администраторы (для проверки прав в личке)
+model Admin {
+  id               String   @id @default(uuid())
+  telegramUserId   BigInt   @unique @map("telegram_user_id")
+  telegramUsername String?  @map("telegram_username")
+  name             String?
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  @@map("admins")
+}
+
+// Клиенты
+model Client {
+  id               String   @id @default(uuid())
+  name             String
+  telegramChatId   BigInt   @unique @map("telegram_chat_id")
+  telegramUserId   BigInt?  @unique @map("telegram_user_id") // For self-registered users
+  tier             String   @default("free") @db.VarChar(20) // free, pro, team, business (legacy: enterprise → business)
+  isSelfRegistered Boolean  @default(false) @map("is_self_registered")
+  notes            String?
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  wallets           Wallet[]
+  policy            Policy?
+  protocolWhitelist ProtocolWhitelist[]
+  addressWhitelist  AddressWhitelist[]
+  subscriptions     Subscription[]
+
+  @@map("clients")
+}
+
+// Кошельки клиентов
+model Wallet {
+  id        String     @id @default(uuid())
+  clientId  String     @map("client_id")
+  address   String     @db.VarChar(42)
+  chainId   Int        @map("chain_id")
+  name      String?
+  type              WalletType @default(safe)
+  isActive          Boolean    @default(true) @map("is_active")
+  monitoringEnabled Boolean    @default(true) @map("monitoring_enabled")
+  eoaFilters        Json?      @map("eoa_filters")
+  createdAt         DateTime   @default(now()) @map("created_at")
+
+  client       Client               @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  transactions TransactionHistory[]
+
+  @@unique([address, chainId])
+  @@index([clientId])
+  @@index([address, chainId])
+  @@map("wallets")
+}
+
+// Политики безопасности (per-client)
+model Policy {
+  id       String @id @default(uuid())
+  clientId String @unique @map("client_id")
+
+  // Amount limits (null = no limit)
+  maxTransactionUsd Decimal? @map("max_transaction_usd") @db.Decimal(20, 2)
+  dailyLimitUsd     Decimal? @map("daily_limit_usd") @db.Decimal(20, 2)
+
+  // Approval settings
+  blockUnlimitedApprovals Boolean  @default(false) @map("block_unlimited_approvals")
+  maxApprovalUsd          Decimal? @map("max_approval_usd") @db.Decimal(20, 2)
+
+  // Unknown contracts
+  warnUnknownContracts  Boolean @default(false) @map("warn_unknown_contracts")
+  blockUnknownContracts Boolean @default(false) @map("block_unknown_contracts")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@map("policies")
+}
+
+// Whitelist протоколов (global + per-client)
+// clientId = null означает глобальный whitelist
+model ProtocolWhitelist {
+  id                String   @id @default(uuid())
+  clientId          String?  @map("client_id")
+  protocolName      String   @map("protocol_name")
+  contractAddresses Json     @map("contract_addresses") // {"1": ["0x..."], "42161": ["0x..."]}
+  isActive          Boolean  @default(true) @map("is_active")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, protocolName])
+  @@index([clientId])
+  @@map("protocol_whitelist")
+}
+
+// Whitelist адресов для переводов (global + per-client)
+// clientId = null означает глобальный whitelist
+model AddressWhitelist {
+  id        String   @id @default(uuid())
+  clientId  String?  @map("client_id")
+  address   String   @db.VarChar(42)
+  label     String?
+  chainIds  Int[]    @map("chain_ids") // empty = all chains
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  client Client? @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@unique([clientId, address])
+  @@index([clientId])
+  @@map("address_whitelist")
+}
+
+// История транзакций (Safe + EOA)
+model TransactionHistory {
+  id         String  @id @default(uuid())
+  walletId   String  @map("wallet_id")
+  txHash     String? @map("tx_hash") @db.VarChar(66) // On-chain transaction hash
+  safeTxHash String? @map("safe_tx_hash") @db.VarChar(66) // Safe-specific hash (null for EOA)
+  chainId    Int     @map("chain_id")
+
+  // Transaction data
+  nonce       Int?    // Safe nonce (or EOA nonce)
+  fromAddress String? @map("from_address") @db.VarChar(42) // Sender (for EOA)
+  toAddress   String  @map("to_address") @db.VarChar(42)
+  valueWei    String? @map("value_wei") @db.VarChar(78)
+  data        String?
+  operation   Int? // 0 = Call, 1 = DelegateCall (Safe only)
+
+  // Gas info (EOA — tx already confirmed)
+  gasUsed  BigInt? @map("gas_used")
+  gasPrice BigInt? @map("gas_price") // in wei
+
+  // Decoded info
+  decodedMethod     String? @map("decoded_method")
+  decodedParams     Json?   @map("decoded_params")
+  detectedRecipient String? @map("detected_recipient") @db.VarChar(42)
+
+  // Simulation results (Safe only — EOA already executed)
+  simulationSuccess Boolean? @map("simulation_success")
+  simulationResult  Json?    @map("simulation_result")
+
+  // Policy check results
+  riskLevel        String? @map("risk_level") @db.VarChar(20) // ok, warning, danger
+  policyViolations Json?   @map("policy_violations")
+
+  // Status tracking
+  status String @db.VarChar(20) // pending, signed, executed, rejected, failed
+
+  // Notification tracking
+  pendingNotificationSentAt DateTime? @map("pending_notification_sent_at")
+  statusNotificationSentAt  DateTime? @map("status_notification_sent_at")
+
+  // Timestamps
+  createdAt  DateTime  @default(now()) @map("created_at")
+  updatedAt  DateTime  @updatedAt @map("updated_at")
+  executedAt DateTime? @map("executed_at")
+
+  // Block info (for EOA tracking)
+  blockNumber Int? @map("block_number")
+
+  wallet Wallet @relation(fields: [walletId], references: [id])
+
+  @@unique([safeTxHash, chainId])
+  @@unique([txHash, chainId])
+  @@index([walletId])
+  @@index([status])
+  @@index([createdAt])
+  @@index([blockNumber])
+  @@map("transaction_history")
+}
+
+// Журнал действий администраторов
+model AuditLog {
+  id        String   @id @default(uuid())
+  action    String   @db.VarChar(100) // e.g. 'client.create', 'wallet.add', 'policy.update'
+  actorId   String?  @map("actor_id") // Telegram user ID (as string)
+  actorName String?  @map("actor_name")
+  targetId  String?  @map("target_id") // ID of affected entity
+  targetType String? @map("target_type") @db.VarChar(50) // 'client', 'wallet', 'policy', etc.
+  details   Json?    // Additional context
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([action])
+  @@index([actorId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// Сети (конфигурация)
+model Network {
+  chainId                   Int      @id @map("chain_id")
+  name                      String
+  shortName                 String   @map("short_name") @db.VarChar(10)
+  safeTxServiceUrl          String   @map("safe_tx_service_url") @db.VarChar(500)
+  tenderlyNetworkId         String   @map("tenderly_network_id") @db.VarChar(50)
+  explorerUrl               String   @map("explorer_url") @db.VarChar(500)
+  rpcUrl                    String?  @map("rpc_url") @db.VarChar(500)
+  etherscanApiUrl           String?  @map("etherscan_api_url") @db.VarChar(500) // For EOA monitoring
+  nativeCurrencySymbol      String   @map("native_currency_symbol") @db.VarChar(10)
+  nativeCurrencyDecimals    Int      @map("native_currency_decimals")
+  nativeCurrencyCoingeckoId String?  @map("native_currency_coingecko_id") @db.VarChar(50)
+  isEnabled                 Boolean  @default(true) @map("is_enabled")
+  createdAt                 DateTime @default(now()) @map("created_at")
+
+  @@map("networks")
+}
+
+// Реестр ERC20 токенов: статичный реестр (cow-orderbook/tokens.ts) + автоматическое
+// разрешение через RPC IERC20.symbol()/decimals() + ручные правки админа.
+// source = 'rpc' (auto) | 'manual' (admin override) | 'static' (seeded from registry)
+model Token {
+  id        String   @id @default(uuid())
+  chainId   Int      @map("chain_id")
+  address   String   @db.VarChar(42)
+  symbol    String   @db.VarChar(32)
+  decimals  Int
+  source    String   @default("rpc") @db.VarChar(20)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@unique([chainId, address])
+  @@index([chainId])
+  @@map("tokens")
+}
+
+// Список разрешённых пользователей для само-регистрации
+// Используется когда REGISTRATION_OPEN=false — только эти TG user ID могут зарегистрироваться
+model AllowedUser {
+  id             String   @id @default(uuid())
+  telegramUserId BigInt   @unique @map("telegram_user_id")
+  username       String?  // @username для отображения
+  note           String?  // Заметка администратора (имя, компания и т.п.)
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("allowed_users")
+}
+
+// Подписки (монетизация)
+model Subscription {
+  id        String   @id @default(uuid())
+  clientId  String   @map("client_id")
+  tier      String   @db.VarChar(20) // pro, team, business (legacy: enterprise → business)
+  startsAt  DateTime @map("starts_at")
+  expiresAt DateTime @map("expires_at")
+  paymentId String?  @map("payment_id") // Telegram Stars payment ID
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  client Client @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId])
+  @@index([expiresAt])
+  @@map("subscriptions")
+}

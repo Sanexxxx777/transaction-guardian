@@ -1,0 +1,16 @@
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+*.bak
+*.bak.*
+*.log
+.DS_Store
+
+/src/generated/prisma
+
+# Internal docs — kept local, not published
+CLAUDE.md
+MONETIZATION.md
+DYNAMIC_PROTOCOLS_PLAN.md
