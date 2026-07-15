@@ -19,8 +19,8 @@
     "defi",
     "monitoring"
   ],
-  "author": "",
-  "license": "ISC",
+  "author": "Aleksandr Shulgin",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@fastify/cors": "^11.2.0",
