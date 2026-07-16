@@ -141,4 +141,4 @@ signing a transaction. Vulnerability reports are welcome — please open an issu
 
 ## License
 
-[MIT](LICENSE) © 2026 Alexander Shulgin
+[MIT](LICENSE) © 2026 Aleksandr Shulgin ([@Aleksandr_NFA](https://t.me/Aleksandr_NFA))

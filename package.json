@@ -19,7 +19,7 @@
     "defi",
     "monitoring"
   ],
-  "author": "Aleksandr Shulgin",
+  "author": "Aleksandr Shulgin (@Aleksandr_NFA)",
   "license": "MIT",
   "type": "module",
   "dependencies": {
