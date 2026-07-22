@@ -1,10 +1,17 @@
 # Transaction Guardian
 
+<!-- TODO: demo GIF (20-40s) -->
+
 Open-source security bot for Safe (multisig) and EOA wallets. It analyzes a pending
 DeFi transaction **before you sign it** — simulating the outcome, decoding the calldata,
 and screening it against a policy engine — then delivers a verdict to Telegram.
 
 The goal: stop a malicious or mistaken transaction from ever being signed.
+
+**RU:** Open-source security-бот для Safe (мультисиг) и EOA кошельков. Анализирует
+входящую DeFi-транзакцию **до подписания** — симулирует результат, декодирует calldata
+и проверяет по policy engine — присылает вердикт в Telegram. Read-only: бот НЕ хранит
+и НЕ подписывает приватные ключи, финальное решение — за пользователем.
 
 ## Features
 
@@ -137,7 +144,18 @@ src/
 
 This project handles untrusted on-chain calldata and stands between a user and
 signing a transaction. Vulnerability reports are welcome — please open an issue
-(or a private report) rather than a public PR for anything sensitive.
+(or a private report) rather than a public PR for anything sensitive. See
+[SECURITY.md](SECURITY.md) for the disclosure process.
+
+**⚠️ Disclaimer:** Transaction Guardian is a **read-only** simulator and policy
+checker. It never stores or signs private keys, and it cannot guarantee 100%
+protection — simulation and policy checks can miss novel attack patterns.
+Verdicts are informational, not financial advice; the final decision to sign
+any transaction is always yours.
+
+## Contact
+
+Questions or issues: [github.com/Sanexxxx777](https://github.com/Sanexxxx777).
 
 ## License
 
